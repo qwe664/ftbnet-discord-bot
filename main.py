@@ -5,22 +5,17 @@ import time
 import datetime
 import json
 import os
+import sys
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from zoneinfo import ZoneInfo
-import config
-
-# 「跨日重發」用的時區——鎖定台灣時間，不管容器本身系統時區是什麼
-# （很多虛擬主機容器預設是 UTC，不鎖的話會變成每天台灣時間早上 8 點才重發）
-TAIPEI_TZ = ZoneInfo("Asia/Taipei")
-from ptero import send_power_signal, send_console_command
-from checks import control_channel_only, admin_only
-from confirm import DangerousConfirmView
-from ws_listener import listen_forever
 
 # ===== 執行紀錄（log 檔案）=====
 # 主控台（Console）畫面捲動太快、重啟後也不會保留，
 # 這裡額外把紀錄寫進 logs/bot.log，方便事後在 File Manager 打開查閱。
+# 這段特意放在最前面（連 import config 之前），
+# 這樣即使等一下讀取 .env / config.py 失敗，錯誤也還是有 logger 可以寫進檔案，
+# 不會因為炸在 logger 建立之前，導致「開機失敗」這件事完全沒有留下紀錄。
 # 用 TimedRotatingFileHandler 設定每天午夜（台灣時間）自動換一份新檔案，
 # 舊檔案會自動改名成 bot.log.YYYY-MM-DD，backupCount=30 代表只保留最近 30 天，
 # 超過一個月的舊 log 會被自動刪除，不用手動清理、也不會無限占用主機空間。
@@ -48,6 +43,33 @@ _console_handler = logging.StreamHandler()
 _console_handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_console_handler)
 
+
+def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
+    """攔截所有沒被 try/except 接住、導致程式直接崩潰的例外，寫進 log 後才真正結束程式。
+    涵蓋 config.py 讀取 .env 失敗、或任何開機階段以外突然崩潰的情況。"""
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Ctrl+C 手動中止不算錯誤，照原本行為處理即可
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.error("[致命錯誤] 程式發生未預期的例外，即將中止：", exc_info=(exc_type, exc_value, exc_traceback))
+
+
+sys.excepthook = _log_uncaught_exception
+
+try:
+    import config
+except Exception:
+    logger.error("[開機失敗] 讀取 config.py / .env 時發生錯誤，機器人無法啟動：", exc_info=True)
+    raise
+
+# 「跨日重發」用的時區——鎖定台灣時間，不管容器本身系統時區是什麼
+# （很多虛擬主機容器預設是 UTC，不鎖的話會變成每天台灣時間早上 8 點才重發）
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
+from ptero import send_power_signal, send_console_command
+from checks import control_channel_only, admin_only
+from confirm import DangerousConfirmView
+from ws_listener import listen_forever
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(
@@ -57,6 +79,8 @@ bot = commands.Bot(
 
 # 避免 on_ready 觸發多次時重複啟動監聽任務
 _listener_started = False
+
+
 
 # ===== 跨重啟持久化狀態（訊息 ID 等）=====
 # 電源狀態、即時狀態監控、伺服器資訊卡片都用「編輯同一則訊息」的方式運作，
@@ -260,23 +284,26 @@ async def on_stats(stats: dict):
 async def on_ready():
     global _listener_started
 
-    logger.info("=" * 40)
-    logger.info(f"🟢 麥塊控制小助手已成功線上登入：{bot.user}")
-    logger.info("所有控制指令均已成功背進大腦！")
-    logger.info(f"目前設定控制網址: {config.PTERO_PANEL_URL}")
-    logger.info(f"目前設定伺服器ID: {config.SERVER_UUID}")
-    logger.info("=" * 40)
-    
-    activity = discord.Activity(
-        type=discord.ActivityType.watching, 
-        name="Minecraft 伺服器"
-    )
-    await bot.change_presence(status=discord.Status.online, activity=activity)
+    try:
+        logger.info("=" * 40)
+        logger.info(f"🟢 麥塊控制小助手已成功線上登入：{bot.user}")
+        logger.info("所有控制指令均已成功背進大腦！")
+        logger.info(f"目前設定控制網址: {config.PTERO_PANEL_URL}")
+        logger.info(f"目前設定伺服器ID: {config.SERVER_UUID}")
+        logger.info("=" * 40)
 
-    if not _listener_started:
-        _listener_started = True
-        bot.loop.create_task(listen_forever(handle_status_change, on_stats, on_tps, tps_poll_interval=600))
-        logger.info("[事件通知] 已啟動 WebSocket 即時監聽任務。")
+        activity = discord.Activity(
+            type=discord.ActivityType.watching,
+            name="Minecraft 伺服器"
+        )
+        await bot.change_presence(status=discord.Status.online, activity=activity)
+
+        if not _listener_started:
+            _listener_started = True
+            bot.loop.create_task(listen_forever(handle_status_change, on_stats, on_tps, tps_poll_interval=600))
+            logger.info("[事件通知] 已啟動 WebSocket 即時監聽任務。")
+    except Exception:
+        logger.error("[開機失敗] on_ready 執行階段發生錯誤：", exc_info=True)
 
 @bot.command()
 @control_channel_only()
@@ -595,5 +622,17 @@ async def serverinfo(ctx):
 
     await ctx.send(f"✅ 伺服器資訊已更新至 {channel.mention}。")
 
+
+@bot.event
+async def on_command_error(ctx, error):
+    """全域指令錯誤處理，確保任何指令執行時出錯都會寫進 log 檔案，而不是只在主控台一閃而過"""
+    logger.error(f"[指令錯誤] {ctx.command} 執行失敗：{error}", exc_info=error)
+    await ctx.send(f"❌ 指令執行時發生錯誤：`{error}`")
+
+
 # 執行機器人
-bot.run(config.DISCORD_BOT_TOKEN)
+try:
+    bot.run(config.DISCORD_BOT_TOKEN)
+except Exception:
+    logger.error("[開機失敗] bot.run 連線 Discord 階段發生錯誤：", exc_info=True)
+    raise
