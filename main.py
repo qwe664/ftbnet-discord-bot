@@ -5,6 +5,8 @@ import time
 import datetime
 import json
 import os
+import logging
+from logging.handlers import TimedRotatingFileHandler
 from zoneinfo import ZoneInfo
 import config
 
@@ -15,6 +17,36 @@ from ptero import send_power_signal, send_console_command
 from checks import control_channel_only, admin_only
 from confirm import DangerousConfirmView
 from ws_listener import listen_forever
+
+# ===== 執行紀錄（log 檔案）=====
+# 主控台（Console）畫面捲動太快、重啟後也不會保留，
+# 這裡額外把紀錄寫進 logs/bot.log，方便事後在 File Manager 打開查閱。
+# 用 TimedRotatingFileHandler 設定每天午夜（台灣時間）自動換一份新檔案，
+# 舊檔案會自動改名成 bot.log.YYYY-MM-DD，backupCount=30 代表只保留最近 30 天，
+# 超過一個月的舊 log 會被自動刪除，不用手動清理、也不會無限占用主機空間。
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logger = logging.getLogger("ftbnet-bot")
+logger.setLevel(logging.INFO)
+
+_file_handler = TimedRotatingFileHandler(
+    os.path.join(LOG_DIR, "bot.log"),
+    when="midnight",
+    interval=1,
+    backupCount=30,  # 只保留最近 30 天，超過自動刪除
+    encoding="utf-8",
+)
+_file_handler.suffix = "%Y-%m-%d"
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+)
+logger.addHandler(_file_handler)
+
+# 同時維持主控台輸出（跟原本的 print 效果一樣，即時查看時還是看得到）
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(logging.Formatter("%(message)s"))
+logger.addHandler(_console_handler)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -74,7 +106,7 @@ async def _update_power_message(embed: discord.Embed):
 
     channel = bot.get_channel(config.STATS_CHANNEL_ID)
     if channel is None:
-        print(f"[事件通知] 找不到頻道 ID {config.STATS_CHANNEL_ID}，略過電源狀態通知。")
+        logger.warning(f"[事件通知] 找不到頻道 ID {config.STATS_CHANNEL_ID}，略過電源狀態通知。")
         return
 
     today = datetime.datetime.now(TAIPEI_TZ).date()
@@ -156,7 +188,7 @@ async def _update_stats_message(embed: discord.Embed):
 
     channel = bot.get_channel(config.STATS_CHANNEL_ID)
     if channel is None:
-        print(f"[狀態監控] 找不到頻道 ID {config.STATS_CHANNEL_ID}，略過狀態更新。")
+        logger.warning(f"[狀態監控] 找不到頻道 ID {config.STATS_CHANNEL_ID}，略過狀態更新。")
         return
 
     today = datetime.datetime.now(TAIPEI_TZ).date()
@@ -228,13 +260,12 @@ async def on_stats(stats: dict):
 async def on_ready():
     global _listener_started
 
-    print("=" * 40)
-    print(f"🟢 麥塊控制小助手已成功線上登入：{bot.user}")
-    print("所有控制指令均已成功背進大腦！")
-    print(f"目前設定控制網址: {config.PTERO_PANEL_URL}")
-    print(f"目前設定伺服器ID: {config.SERVER_UUID}")
-    
-    print("=" * 40)
+    logger.info("=" * 40)
+    logger.info(f"🟢 麥塊控制小助手已成功線上登入：{bot.user}")
+    logger.info("所有控制指令均已成功背進大腦！")
+    logger.info(f"目前設定控制網址: {config.PTERO_PANEL_URL}")
+    logger.info(f"目前設定伺服器ID: {config.SERVER_UUID}")
+    logger.info("=" * 40)
     
     activity = discord.Activity(
         type=discord.ActivityType.watching, 
@@ -245,7 +276,7 @@ async def on_ready():
     if not _listener_started:
         _listener_started = True
         bot.loop.create_task(listen_forever(handle_status_change, on_stats, on_tps, tps_poll_interval=600))
-        print("[事件通知] 已啟動 WebSocket 即時監聽任務。")
+        logger.info("[事件通知] 已啟動 WebSocket 即時監聽任務。")
 
 @bot.command()
 @control_channel_only()
@@ -374,7 +405,7 @@ async def mcstatus(ctx):
             await msg.edit(embed=embed)
             
     except Exception as e:
-        print(f"[查詢狀態] 本地探針執行失敗: {e}")
+        logger.error(f"[查詢狀態] 本地探針執行失敗: {e}")
         await msg.edit(content=f"❌ 探針執行失敗，請至控制台確認日誌。", embed=None)
 
 @bot.command()
