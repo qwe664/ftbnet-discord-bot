@@ -71,22 +71,32 @@ def get_websocket_credentials():
     """向面板換取 WebSocket 的臨時 Token 與連線網址"""
     url = f"{PANEL_URL}/api/client/servers/{SERVER_ID}/websocket"
     print(f"\n[獲取WS憑證] 正在請求網址: {url}")
-    
+
     try:
         response = requests.get(
-            url, 
-            headers=HEADERS, 
+            url,
+            headers=HEADERS,
             timeout=10
         )
         print(f"[獲取WS憑證] 主機回應狀態碼: {response.status_code}")
-        
+
         if response.status_code == 200:
-            # 成功時會拿到包含 data.token 和 data.socket 的 JSON 字典
-            return response.json().get("data", {})
+            body = response.json()
+
+            # Pterodactyl / Pelican 會把結果包在 "data" 這層底下；
+            # Calagopus 的回應格式不一定相同，可能直接把 token/socket 放在最外層。
+            # 這裡兩種格式都相容：先看有沒有 "data"，沒有就直接用最外層當作資料本體。
+            data = body.get("data", body) if isinstance(body, dict) else {}
+
+            if "token" not in data or "socket" not in data:
+                print(f"[獲取WS憑證] 回應格式異於預期，完整內容：{body}")
+                return None
+
+            return data
         else:
             print(f"[獲取WS憑證] 失敗訊息: {response.text}")
             return None
-            
+
     except requests.RequestException as e:
         print(f"[獲取WS憑證] 連線發生異常錯誤: {e}")
         return None
