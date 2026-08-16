@@ -88,6 +88,10 @@ def get_websocket_credentials():
             # 這裡兩種格式都相容：先看有沒有 "data"，沒有就直接用最外層當作資料本體。
             data = body.get("data", body) if isinstance(body, dict) else {}
 
+            # Pterodactyl/Pelican 用 "socket" 這個欄位名，Calagopus 實測用的是 "url"
+            if "socket" not in data and "url" in data:
+                data["socket"] = data["url"]
+
             if "token" not in data or "socket" not in data:
                 print(f"[獲取WS憑證] 回應格式異於預期，完整內容：{body}")
                 return None
