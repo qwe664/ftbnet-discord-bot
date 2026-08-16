@@ -49,7 +49,17 @@ async def _get_ws_credentials():
             print(f"[WebSocket] 回應內容：{resp.text[:2000]}")
 
         resp.raise_for_status()
-        data = resp.json()["data"]
+        body = resp.json()
+
+        # Pterodactyl / Pelican 會把結果包在 "data" 這層底下；
+        # Calagopus 的回應格式不一定相同，可能直接把 token/socket 放在最外層。
+        # 這裡兩種格式都相容：先看有沒有 "data"，沒有就直接用最外層當作資料本體。
+        data = body.get("data", body) if isinstance(body, dict) else {}
+
+        if "token" not in data or "socket" not in data:
+            print(f"[WebSocket] 回應格式異於預期，完整內容：{body}")
+            raise KeyError(f"回應中找不到 token/socket，原始內容：{body}")
+
         return data["token"], data["socket"]
 
     return await asyncio.to_thread(_fetch)
