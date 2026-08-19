@@ -32,10 +32,12 @@ def send_power_signal(signal):
 
         print(f"[發送訊號] 主機回應狀態碼: {response.status_code}")
 
-        if response.status_code != 204:
+        # 標準 Pterodactyl/Pelican 對 power 訊號成功時回傳 204 No Content；
+        # Calagopus 實測回傳的是 200，且內容為空 "{}"，兩種都視為成功。
+        if response.status_code not in (200, 204):
             print(f"[發送訊號] 主機拒絕訊息: {response.text}")
 
-        return response.status_code == 204
+        return response.status_code in (200, 204)
 
     except requests.RequestException as e:
         print(f"[發送訊號] 連線發生異常錯誤: {e}")
@@ -58,7 +60,8 @@ def send_console_command(command_text):
 
         print(f"[發送指令] 主機回應狀態碼: {response.status_code}")
 
-        if response.status_code != 204:
+        # 同 power 訊號：Calagopus 也可能回 200 而非標準的 204，兩者都視為成功。
+        if response.status_code not in (200, 204):
             print(f"[發送指令] 主機拒絕訊息: {response.text}")
 
         return response
@@ -71,22 +74,36 @@ def get_websocket_credentials():
     """向面板換取 WebSocket 的臨時 Token 與連線網址"""
     url = f"{PANEL_URL}/api/client/servers/{SERVER_ID}/websocket"
     print(f"\n[獲取WS憑證] 正在請求網址: {url}")
-    
+
     try:
         response = requests.get(
-            url, 
-            headers=HEADERS, 
+            url,
+            headers=HEADERS,
             timeout=10
         )
         print(f"[獲取WS憑證] 主機回應狀態碼: {response.status_code}")
-        
+
         if response.status_code == 200:
-            # 成功時會拿到包含 data.token 和 data.socket 的 JSON 字典
-            return response.json().get("data", {})
+            body = response.json()
+
+            # Pterodactyl / Pelican 會把結果包在 "data" 這層底下；
+            # Calagopus 的回應格式不一定相同，可能直接把 token/socket 放在最外層。
+            # 這裡兩種格式都相容：先看有沒有 "data"，沒有就直接用最外層當作資料本體。
+            data = body.get("data", body) if isinstance(body, dict) else {}
+
+            # Pterodactyl/Pelican 用 "socket" 這個欄位名，Calagopus 實測用的是 "url"
+            if "socket" not in data and "url" in data:
+                data["socket"] = data["url"]
+
+            if "token" not in data or "socket" not in data:
+                print(f"[獲取WS憑證] 回應格式異於預期，完整內容：{body}")
+                return None
+
+            return data
         else:
             print(f"[獲取WS憑證] 失敗訊息: {response.text}")
             return None
-            
+
     except requests.RequestException as e:
         print(f"[獲取WS憑證] 連線發生異常錯誤: {e}")
         return None

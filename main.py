@@ -314,7 +314,7 @@ async def mcstart(ctx):
     # 建立發送中的灰色卡片
     embed_loading = discord.Embed(
         title="🎮 Minecraft 電源控制",
-        description="⏳ 正在嘗試向 SwiftPlay 發送開機訊號...",
+        description="⏳ 正在嘗試向 Calagopus 面板發送開機訊號...",
         color=config.COLOR_LOADING,
     )
 
@@ -328,7 +328,7 @@ async def mcstart(ctx):
         )
         embed_success.add_field(
             name="操作結果",
-            value="🟢 成功！SwiftPlay 伺服器正在啟動中。",
+            value="🟢 成功！伺服器正在啟動中。",
             inline=False,
         )
         embed_success.add_field(
@@ -351,7 +351,7 @@ async def mcstart(ctx):
         )
         embed_fail.add_field(
             name="排查建議",
-            value="請確認 SwiftPlay 面板目前是否正常運行，或至 Sparked Host 查看後台日誌。",
+            value="請確認 Calagopus 面板（panel.ftbnet.net）目前是否正常運行，或直接至面板查看主控台日誌。",
             inline=False,
         )
         await msg.edit(embed=embed_fail)
@@ -362,7 +362,7 @@ async def mcstart(ctx):
 async def mcstop(ctx):
     """關機指令（嵌入式訊息版）"""
     # 建立發送中的灰色卡片
-    embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 SwiftPlay 發送安全關機訊號...", color=config.COLOR_LOADING)
+    embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 Calagopus 面板發送安全關機訊號...", color=config.COLOR_LOADING)
     msg = await ctx.send(embed=embed_loading)
     
     if send_power_signal("stop"):
@@ -375,7 +375,7 @@ async def mcstop(ctx):
         # 失敗：顯示黃色卡片
         embed_fail = discord.Embed(title="🎮 Minecraft 電源控制", color=config.COLOR_WARNING)
         embed_fail.add_field(name="操作結果", value="❌ 關機失敗！無法關閉伺服器。", inline=False)
-        embed_fail.add_field(name="排查建議", value="如果伺服器卡死，請直接至 SwiftPlay 網頁面板進行「強制斬殺 (Kill)」。", inline=False)
+        embed_fail.add_field(name="排查建議", value="如果伺服器卡死，請直接至 Calagopus 網頁面板進行「強制斬殺 (Kill)」。", inline=False)
         await msg.edit(embed=embed_fail)
 
 @bot.command()
@@ -384,7 +384,7 @@ async def mcstop(ctx):
 async def mcrestart(ctx):
     """重啟指令（嵌入式訊息版）"""
     # 建立發送中的灰色卡片
-    embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 SwiftPlay 發送重新啟動訊號...", color=config.COLOR_LOADING)
+    embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 Calagopus 面板發送重新啟動訊號...", color=config.COLOR_LOADING)
     msg = await ctx.send(embed=embed_loading)
     
     if send_power_signal("restart"):
@@ -422,7 +422,7 @@ async def mcstatus(ctx):
             embed.add_field(name="運作狀態", value="🟢 線上 (Online)", inline=False)
             embed.add_field(name="連線位置", value=f"`{MC_HOST}:{MC_PORT}`", inline=False)
             embed.add_field(name="提示", value="👍 伺服器已成功對外開放，玩家可正常連線登入！", inline=False)
-            embed.set_footer(text="💡 提示：開關機功能已與 SwiftPlay 面板 API 成功綁定。")
+            embed.set_footer(text="💡 提示：開關機功能已與 Calagopus 面板 API 成功綁定。")
             await msg.edit(embed=embed)
         else:
             # 🔴 代表大門關閉，伺服器關機中
@@ -455,7 +455,7 @@ async def mccmd(ctx, *, command_text: str):
         if response is None:
             await ctx.send("❌ 無法連線至主控台。")
 
-        elif response.status_code != 204:
+        elif response.status_code not in (200, 204):
             await ctx.send(
                 f"❌ 指令發送失敗，主機回傳 `{response.status_code}`。"
             )
@@ -480,7 +480,7 @@ async def mccmd(ctx, *, command_text: str):
     if response is None:
         await ctx.send("❌ 無法連線至主控台。")
 
-    elif response.status_code == 204:
+    elif response.status_code in (200, 204):
         await ctx.send(
             f"💻 已成功對遊戲控制台發送指令：`/{command_text}`"
         )

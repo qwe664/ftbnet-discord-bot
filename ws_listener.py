@@ -1,5 +1,5 @@
 """
-連線 Pterodactyl (SwiftPlay/Sparked Host 等面板底層) 的 Client API WebSocket，
+連線 Pterodactyl 相容面板（目前為 Calagopus, panel.ftbnet.net）的 Client API WebSocket，
 單純拿來監控伺服器狀態：
 
   1. 伺服器電源狀態變化（開機中／已啟動／關機中／已離線）
@@ -49,8 +49,21 @@ async def _get_ws_credentials():
             print(f"[WebSocket] 回應內容：{resp.text[:2000]}")
 
         resp.raise_for_status()
-        data = resp.json()["data"]
-        return data["token"], data["socket"]
+        body = resp.json()
+
+        # Pterodactyl / Pelican 會把結果包在 "data" 這層底下；
+        # Calagopus 的回應格式不一定相同，可能直接把 token/socket 放在最外層。
+        # 這裡兩種格式都相容：先看有沒有 "data"，沒有就直接用最外層當作資料本體。
+        data = body.get("data", body) if isinstance(body, dict) else {}
+
+        # Pterodactyl/Pelican 用 "socket" 這個欄位名，Calagopus 實測用的是 "url"
+        socket_url = data.get("socket") or data.get("url")
+
+        if "token" not in data or not socket_url:
+            print(f"[WebSocket] 回應格式異於預期，完整內容：{body}")
+            raise KeyError(f"回應中找不到 token/socket(url)，原始內容：{body}")
+
+        return data["token"], socket_url
 
     return await asyncio.to_thread(_fetch)
 
