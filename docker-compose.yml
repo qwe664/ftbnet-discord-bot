@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: ftbnet-discord-bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./bot_state.json:/app/bot_state.json
