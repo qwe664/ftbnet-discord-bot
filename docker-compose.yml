@@ -5,6 +5,18 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      - DISCORD_BOT_TOKEN_FILE=/run/secrets/discord_bot_token
+      - PTERO_API_KEY_FILE=/run/secrets/ptero_api_key
+    secrets:
+      - discord_bot_token
+      - ptero_api_key
     volumes:
       - ./logs:/app/logs
       - ./bot_state.json:/app/bot_state.json
+
+secrets:
+  discord_bot_token:
+    file: ./secrets/DISCORD_BOT_TOKEN
+  ptero_api_key:
+    file: ./secrets/PTERO_API_KEY

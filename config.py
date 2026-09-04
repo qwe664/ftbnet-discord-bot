@@ -7,14 +7,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _read_setting(name: str) -> str | None:
+    file_path = os.getenv(f"{name}_FILE")
+    if file_path:
+        try:
+            with open(file_path, encoding="utf-8") as secret_file:
+                return secret_file.read().rstrip("\r\n")
+        except OSError as exc:
+            raise RuntimeError(
+                f"無法讀取 {name}_FILE ({file_path}): {exc}"
+            ) from exc
+    return os.getenv(name)
+
+
 def _require(name: str) -> str:
     """
     讀取一個必要的環境變數，讀不到就直接報錯中止，
     而不是讓程式帶著空字串繼續跑、之後才在莫名其妙的地方出錯。
     """
-    value = os.getenv(name)
+    value = _read_setting(name)
     if not value:
-        raise RuntimeError(f".env 裡缺少 {name}，請檢查 .env 檔案")
+        raise RuntimeError(f"缺少 {name} 或 {name}_FILE，請檢查部署設定")
     return value
 
 

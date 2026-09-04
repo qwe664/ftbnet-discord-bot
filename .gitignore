@@ -4,3 +4,4 @@ __pycache__/
 .cache/
 bot_state.json
 logs/
+secrets/
