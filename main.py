@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import asyncio
 import socket
 import time
 import datetime
@@ -79,6 +80,33 @@ bot = commands.Bot(
 
 # 避免 on_ready 觸發多次時重複啟動監聽任務
 _listener_started = False
+_healthcheck_task = None
+
+HEALTHCHECK_FILE = "/tmp/discord-bot-ready"
+HEALTHCHECK_INTERVAL_SECONDS = 15
+
+
+def _clear_healthcheck_file():
+    try:
+        os.remove(HEALTHCHECK_FILE)
+    except FileNotFoundError:
+        pass
+
+
+async def _healthcheck_heartbeat():
+    """Only keep the Docker readiness marker fresh while Discord is connected."""
+    while not bot.is_closed():
+        try:
+            if bot.is_ready():
+                with open(HEALTHCHECK_FILE, "a", encoding="utf-8"):
+                    os.utime(HEALTHCHECK_FILE, None)
+            else:
+                _clear_healthcheck_file()
+        except OSError:
+            logger.warning("[健康檢查] 無法更新 readiness 檔案。", exc_info=True)
+        await asyncio.sleep(HEALTHCHECK_INTERVAL_SECONDS)
+
+    _clear_healthcheck_file()
 
 
 
@@ -282,7 +310,7 @@ async def on_stats(stats: dict):
 
 @bot.event
 async def on_ready():
-    global _listener_started
+    global _listener_started, _healthcheck_task
 
     try:
         logger.info("=" * 40)
@@ -297,6 +325,10 @@ async def on_ready():
             name="Minecraft 伺服器"
         )
         await bot.change_presence(status=discord.Status.online, activity=activity)
+
+        if _healthcheck_task is None or _healthcheck_task.done():
+            _healthcheck_task = bot.loop.create_task(_healthcheck_heartbeat())
+            logger.info("[健康檢查] 已啟動 Discord readiness heartbeat。")
 
         if not _listener_started:
             _listener_started = True

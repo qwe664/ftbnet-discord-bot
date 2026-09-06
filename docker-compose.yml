@@ -17,6 +17,12 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./bot_state.json:/app/bot_state.json
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,time; p='/tmp/discord-bot-ready'; raise SystemExit(0 if time.time() - os.stat(p).st_mtime < 60 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 30s
 
 secrets:
   discord_bot_token:
