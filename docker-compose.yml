@@ -11,6 +11,7 @@ services:
     environment:
       - DISCORD_BOT_TOKEN_FILE=/run/secrets/discord_bot_token
       - PTERO_API_KEY_FILE=/run/secrets/ptero_api_key
+      - TZ=Asia/Taipei
     secrets:
       - discord_bot_token
       - ptero_api_key
