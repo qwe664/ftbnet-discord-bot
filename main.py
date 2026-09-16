@@ -151,6 +151,24 @@ STATUS_TRANSITIONS = {
 _power_message = None
 _power_message_date = None
 
+# 防止開關機指令在短時間內被重複送出。
+# 面板在第一次 stop 已進入 stopping 後，第二次 stop 可能回 500，
+# 造成 Discord 同時出現成功與失敗訊息。
+POWER_COMMAND_COOLDOWN_SECONDS = 15
+_last_power_command_time = 0.0
+
+
+def _power_command_is_allowed() -> bool:
+    """限制電源指令頻率，避免重複請求造成面板狀態競爭。"""
+    global _last_power_command_time
+
+    now = time.monotonic()
+    if now - _last_power_command_time < POWER_COMMAND_COOLDOWN_SECONDS:
+        return False
+
+    _last_power_command_time = now
+    return True
+
 
 async def _update_power_message(embed: discord.Embed):
     """實際負責發送或編輯電源狀態訊息，並處理跨日重發與重啟後的訊息還原"""
@@ -343,6 +361,10 @@ async def on_ready():
 async def mcstart(ctx):
     """開機指令（嵌入式訊息版）"""
 
+    if not _power_command_is_allowed():
+        await ctx.send("⏳ 電源操作正在處理中，請 15 秒後再試。", delete_after=5)
+        return
+
     # 建立發送中的灰色卡片
     embed_loading = discord.Embed(
         title="🎮 Minecraft 電源控制",
@@ -393,6 +415,10 @@ async def mcstart(ctx):
 @admin_only()
 async def mcstop(ctx):
     """關機指令（嵌入式訊息版）"""
+
+    if not _power_command_is_allowed():
+        await ctx.send("⏳ 電源操作正在處理中，請 15 秒後再試。", delete_after=5)
+        return
     # 建立發送中的灰色卡片
     embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 Calagopus 面板發送安全關機訊號...", color=config.COLOR_LOADING)
     msg = await ctx.send(embed=embed_loading)
@@ -415,6 +441,10 @@ async def mcstop(ctx):
 @admin_only()
 async def mcrestart(ctx):
     """重啟指令（嵌入式訊息版）"""
+
+    if not _power_command_is_allowed():
+        await ctx.send("⏳ 電源操作正在處理中，請 15 秒後再試。", delete_after=5)
+        return
     # 建立發送中的灰色卡片
     embed_loading = discord.Embed(title="🎮 Minecraft 電源控制", description="⏳ 正在嘗試向 Calagopus 面板發送重新啟動訊號...", color=config.COLOR_LOADING)
     msg = await ctx.send(embed=embed_loading)

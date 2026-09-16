@@ -68,7 +68,7 @@ async def _get_ws_credentials():
     return await asyncio.to_thread(_fetch)
 
 
-async def _poll_tps_forever(interval_seconds: int):
+async def _poll_tps_forever(interval_seconds: int, should_poll):
     """
     背景任務：每隔 interval_seconds 秒，送一次 /tps 指令。
     真正的數字要靠下面主迴圈收到 console output 時解析，
@@ -76,6 +76,8 @@ async def _poll_tps_forever(interval_seconds: int):
     """
     while True:
         await asyncio.sleep(interval_seconds)
+        if not should_poll():
+            continue
         try:
             await asyncio.to_thread(ptero.send_console_command, "tps")
         except Exception as e:
@@ -108,7 +110,7 @@ async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_inter
                 print("[WebSocket] 已連線並送出驗證，等待面板回應中...")
 
                 if on_tps is not None:
-                    tps_task = asyncio.create_task(_poll_tps_forever(tps_poll_interval))
+                    tps_task = asyncio.create_task(_poll_tps_forever(tps_poll_interval, lambda: last_status == "running"))
 
                 async for raw in ws:
                     try:
