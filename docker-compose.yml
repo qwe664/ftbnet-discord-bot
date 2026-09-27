@@ -6,6 +6,8 @@ services:
     mem_limit: 256m
     cpus: 0.5
     pids_limit: 100
+    extra_hosts:
+      - "wings.ftbnet.net:host-gateway"
     env_file:
       - .env
     environment:
