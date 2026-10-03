@@ -97,10 +97,25 @@ async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_inter
     """
 
     last_status = None
+    server_offline_logged = False
 
     while True:
         tps_task = None
         try:
+            # 伺服器關機時，面板的 websocket 憑證端點可能回 502。
+            # 先查資源狀態，避免關機期間反覆打到 websocket 端點。
+            server_state = await asyncio.to_thread(ptero.get_server_status)
+            if server_state == "offline":
+                if not server_offline_logged:
+                    print("[WebSocket] 伺服器目前離線，暫停 WebSocket 與 TPS 輪詢。")
+                    server_offline_logged = True
+                await asyncio.sleep(60)
+                continue
+
+            if server_offline_logged:
+                print(f"[WebSocket] 偵測到伺服器狀態：{server_state or 'unknown'}，恢復連線嘗試。")
+                server_offline_logged = False
+
             token, socket_url = await _get_ws_credentials()
 
             panel_origin = config.PTERO_PANEL_URL.rstrip('/')
