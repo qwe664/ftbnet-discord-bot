@@ -26,6 +26,10 @@ import ptero
 # 這個正則只抓「最近 1 分鐘」那個數字，夠日常監控用了。
 _TPS_PATTERN = re.compile(r"TPS from last 1m.*?:\s*([\d.]+)")
 
+# 連線失敗的重試等待：從 5 秒開始逐次加倍，最多 60 秒；驗證成功後重設
+_RETRY_DELAY_MIN = 5
+_RETRY_DELAY_MAX = 60
+
 
 async def _get_ws_credentials():
     """跟面板要一組 WebSocket 專用 token + 連線位址（同步 API 包成背景執行緒跑，不卡住事件迴圈）"""
@@ -87,7 +91,8 @@ async def _poll_tps_forever(interval_seconds: int, should_poll):
 async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_interval=60):
     """
     持續監聽面板 WebSocket，直到程式結束為止。
-    斷線／連線失敗會每 5 秒自動重試。
+    斷線／連線失敗會自動重試，等待時間從 5 秒逐次加倍、最多 60 秒，連上後重設。
+    伺服器離線或面板暫時查不到狀態（例如整機備份暫停面板時）會每 60 秒再查一次。
 
     on_status_change(old_status, new_status) -> 需為 async function
     on_stats(stats: dict)                    -> 需為 async function，收到面板原生的資源用量資料
@@ -97,24 +102,28 @@ async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_inter
     """
 
     last_status = None
-    server_offline_logged = False
+    paused_reason = None
+    retry_delay = _RETRY_DELAY_MIN
 
     while True:
         tps_task = None
         try:
             # 伺服器關機時，面板的 websocket 憑證端點可能回 502。
             # 先查資源狀態，避免關機期間反覆打到 websocket 端點。
+            # 查不到狀態（None）代表面板本身連不上，例如整機備份暫停面板時，
+            # 這時連 websocket 也只會一直 502，同樣先暫停。
             server_state = await asyncio.to_thread(ptero.get_server_status)
-            if server_state == "offline":
-                if not server_offline_logged:
-                    print("[WebSocket] 伺服器目前離線，暫停 WebSocket 與 TPS 輪詢。")
-                    server_offline_logged = True
+            if server_state == "offline" or server_state is None:
+                reason = "伺服器目前離線" if server_state == "offline" else "面板暫時無法取得伺服器狀態"
+                if paused_reason != reason:
+                    print(f"[WebSocket] {reason}，暫停 WebSocket 與 TPS 輪詢，每 60 秒重新檢查。")
+                    paused_reason = reason
                 await asyncio.sleep(60)
                 continue
 
-            if server_offline_logged:
-                print(f"[WebSocket] 偵測到伺服器狀態：{server_state or 'unknown'}，恢復連線嘗試。")
-                server_offline_logged = False
+            if paused_reason is not None:
+                print(f"[WebSocket] 偵測到伺服器狀態：{server_state}，恢復連線嘗試。")
+                paused_reason = None
 
             token, socket_url = await _get_ws_credentials()
 
@@ -138,6 +147,7 @@ async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_inter
 
                     if event == "auth success":
                         print("[WebSocket] 驗證成功，開始接收即時資料。")
+                        retry_delay = _RETRY_DELAY_MIN
 
                     elif event == "token expiring":
                         # 連線快過期，取新 token 續命，不用重新建立連線
@@ -183,8 +193,9 @@ async def listen_forever(on_status_change, on_stats, on_tps=None, tps_poll_inter
                         print(f"[WebSocket] 面板回報錯誤：{args}")
 
         except Exception as e:
-            print(f"[WebSocket] 連線中斷或發生錯誤：{e}，5 秒後重試...")
-            await asyncio.sleep(5)
+            print(f"[WebSocket] 連線中斷或發生錯誤：{e}，{retry_delay} 秒後重試...")
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, _RETRY_DELAY_MAX)
         finally:
             if tps_task is not None:
                 tps_task.cancel()
