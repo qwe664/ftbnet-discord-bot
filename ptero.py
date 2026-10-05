@@ -72,7 +72,11 @@ def send_console_command(command_text):
 
 
 def get_server_status():
-    """取得伺服器目前狀態；查不到時回傳 None。"""
+    """
+    取得伺服器目前狀態。
+    面板連不上或回應錯誤時回傳 None；面板有回應但看不懂格式時回傳 "unknown"，
+    讓呼叫端能分辨「面板暫時不可用」與「格式未知但面板正常」。
+    """
 
     url = f"{PANEL_URL}/api/client/servers/{SERVER_ID}/resources"
 
@@ -84,7 +88,7 @@ def get_server_status():
 
         body = response.json()
         if not isinstance(body, dict):
-            return None
+            return "unknown"
 
         # 標準 Pterodactyl/Pelican：data.attributes.current_state
         data = body.get("data")
@@ -95,10 +99,10 @@ def get_server_status():
 
         # Calagopus：resources.state
         resources = body.get("resources")
-        if isinstance(resources, dict):
-            return resources.get("state")
+        if isinstance(resources, dict) and resources.get("state"):
+            return resources["state"]
 
-        return None
+        return "unknown"
 
     except (requests.RequestException, ValueError) as e:
         print(f"[伺服器狀態] 查詢發生錯誤：{e}")
